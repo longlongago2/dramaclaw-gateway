@@ -345,6 +345,28 @@ func awaitH2ServerResult(t *testing.T, resultCh <-chan h2ServerResult) h2ServerR
 	}
 }
 
+// A PING acknowledgement proves the client consumed preceding protocol frames.
+// Closing immediately can instead expose a TCP reset on Windows when client
+// control frames remain unread, hiding the intended RST_STREAM or GOAWAY.
+func awaitH2TestFrameDelivery(framer *http2.Framer) error {
+	ping := [8]byte{1}
+	if err := framer.WritePing(false, ping); err != nil {
+		return err
+	}
+	for {
+		frame, err := framer.ReadFrame()
+		if err == io.EOF {
+			return nil // GOAWAY may make the client close the connection itself.
+		}
+		if err != nil {
+			return err
+		}
+		if ack, ok := frame.(*http2.PingFrame); ok && ack.IsAck() && ack.Data == ping {
+			return nil
+		}
+	}
+}
+
 // runResetOnFirstStreamServer speaks just enough raw HTTP/2 to emulate an
 // upstream that accepts the first request, waits until the request body has
 // been fully written, and then resets the stream with REFUSED_STREAM (the
@@ -380,6 +402,7 @@ func runResetOnFirstStreamServer(ln net.Listener, expectRetry bool) <-chan h2Ser
 					return
 				}
 				if !expectRetry {
+					res.err = awaitH2TestFrameDelivery(framer)
 					break attempts
 				}
 				continue
@@ -417,6 +440,9 @@ func runGoAwayAfterFirstRequestServer(ln net.Listener) <-chan h2ServerResult {
 
 			if attempt == 0 {
 				err = framer.WriteGoAway(0, http2.ErrCodeNo, nil)
+				if err == nil {
+					err = awaitH2TestFrameDelivery(framer)
+				}
 				conn.Close()
 				if err != nil {
 					res.err = err
