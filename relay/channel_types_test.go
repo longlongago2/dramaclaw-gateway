@@ -32,6 +32,9 @@ func TestGetRegisteredChannelTypes(t *testing.T) {
 	assert.Equal(t, []string{"text", "vision", "embedding"}, openRouter.Capabilities)
 
 	doubaoAudio := channelTypeMetadataByType(t, items, constant.ChannelTypeDoubaoAudio)
+	volcengine := channelTypeMetadataByType(t, items, constant.ChannelTypeVolcEngine)
+	assert.Contains(t, volcengine.Capabilities, "audio")
+	assert.Contains(t, volcengine.Capabilities, "image")
 	assert.Equal(t, "doubao_audio", doubaoAudio.Provider)
 	assert.Equal(t, []string{"audio"}, doubaoAudio.Capabilities)
 	assert.Equal(t, "https://openspeech.bytedance.com", doubaoAudio.DefaultBaseURL)

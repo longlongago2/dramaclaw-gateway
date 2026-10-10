@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 
@@ -44,11 +45,21 @@ type audioReference struct {
 	Speaker   string `json:"speaker,omitempty"`
 	AudioData string `json:"audio_data,omitempty"`
 	AudioURL  string `json:"audio_url,omitempty"`
+	ImageData string `json:"image_data,omitempty"`
+	ImageURL  string `json:"image_url,omitempty"`
 }
 
 type audioGenerationConfig struct {
-	Format     string `json:"format"`
-	SpeechRate *int   `json:"speech_rate,omitempty"`
+	Format       string `json:"format"`
+	SpeechRate   *int   `json:"speech_rate,omitempty"`
+	SampleRate   *int   `json:"sample_rate,omitempty"`
+	LoudnessRate *int   `json:"loudness_rate,omitempty"`
+	PitchRate    *int   `json:"pitch_rate,omitempty"`
+}
+
+type audioGenerationOptions struct {
+	References  []audioReference       `json:"references,omitempty"`
+	AudioConfig *audioGenerationConfig `json:"audio_config,omitempty"`
 }
 
 type audioGenerationResponse struct {
@@ -176,6 +187,38 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		},
 	}
 	c.Set(contextKeyResponseFormat, request.ResponseFormat)
+	var options audioGenerationOptions
+	if len(request.Metadata) > 0 {
+		if err := common.Unmarshal(request.Metadata, &options); err != nil {
+			return nil, fmt.Errorf("invalid audio generation metadata: %w", err)
+		}
+	}
+	if len(options.References) > 0 {
+		if len(references) > 0 {
+			return nil, errors.New("metadata.references cannot be combined with voice or metadata.audio_url")
+		}
+		if err := validateAudioGenerationReferences(options.References); err != nil {
+			return nil, err
+		}
+		upstreamRequest.References = options.References
+	}
+	if options.AudioConfig != nil {
+		config := *options.AudioConfig
+		if config.Format != "" && config.Format != format {
+			return nil, errors.New("metadata.audio_config.format conflicts with response_format")
+		}
+		config.Format = format
+		if config.SpeechRate != nil && speechRate != nil && *config.SpeechRate != *speechRate {
+			return nil, errors.New("metadata.audio_config.speech_rate conflicts with speed")
+		}
+		if config.SpeechRate == nil {
+			config.SpeechRate = speechRate
+		}
+		if err := validateAudioGenerationConfig(config); err != nil {
+			return nil, err
+		}
+		upstreamRequest.AudioConfig = config
+	}
 	body, err := common.Marshal(upstreamRequest)
 	if err != nil {
 		return nil, fmt.Errorf("marshal doubao audio request: %w", err)
@@ -323,12 +366,82 @@ func doubaoAudioReference(rawURL string) (audioReference, error) {
 	return audioReference{AudioURL: rawURL}, nil
 }
 
+func validateAudioGenerationReferences(references []audioReference) error {
+	audioCount, imageCount := 0, 0
+	for _, reference := range references {
+		fields := 0
+		for _, value := range []string{reference.Speaker, reference.AudioData, reference.AudioURL, reference.ImageData, reference.ImageURL} {
+			if strings.TrimSpace(value) != "" {
+				fields++
+			}
+		}
+		if fields != 1 {
+			return errors.New("each audio generation reference must contain exactly one resource")
+		}
+		if reference.ImageData != "" || reference.ImageURL != "" {
+			imageCount++
+		} else {
+			audioCount++
+		}
+		for _, encoded := range []string{reference.AudioData, reference.ImageData} {
+			if encoded == "" {
+				continue
+			}
+			decodedLength := base64.StdEncoding.DecodedLen(len(encoded))
+			if strings.HasSuffix(encoded, "=") {
+				decodedLength--
+			}
+			if strings.HasSuffix(encoded, "==") {
+				decodedLength--
+			}
+			if decodedLength > maxReferenceAudioBytes {
+				return errors.New("audio generation reference exceeds 10 MB")
+			}
+			if _, err := io.Copy(io.Discard, base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))); err != nil {
+				return errors.New("audio generation reference contains invalid base64")
+			}
+		}
+		for _, resourceURL := range []string{reference.AudioURL, reference.ImageURL} {
+			if resourceURL != "" {
+				parsed, err := url.Parse(resourceURL)
+				if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+					return errors.New("audio generation reference URL must use HTTP(S)")
+				}
+			}
+		}
+	}
+	if audioCount > 3 || imageCount > 1 || (audioCount > 0 && imageCount > 0) {
+		return errors.New("audio generation supports up to three audio references or one image, without mixing")
+	}
+	return nil
+}
+
+func validateAudioGenerationConfig(config audioGenerationConfig) error {
+	if (config.SpeechRate != nil && (*config.SpeechRate < -50 || *config.SpeechRate > 100)) ||
+		(config.LoudnessRate != nil && (*config.LoudnessRate < -50 || *config.LoudnessRate > 100)) ||
+		(config.PitchRate != nil && (*config.PitchRate < -12 || *config.PitchRate > 12)) {
+		return errors.New("audio generation rate is outside the provider's supported range")
+	}
+	if config.SampleRate != nil {
+		valid := false
+		for _, rate := range []int{8000, 16000, 24000, 32000, 40000, 44100, 48000} {
+			if *config.SampleRate == rate {
+				valid = true
+			}
+		}
+		if !valid || (config.Format == "mp3" && *config.SampleRate == 40000) || (config.Format == "ogg_opus" && *config.SampleRate != 48000) {
+			return errors.New("audio generation sample_rate is unsupported for the selected format")
+		}
+	}
+	return nil
+}
+
 func doubaoAudioFormat(responseFormat, outputFormat string) (string, error) {
 	requested := strings.ToLower(strings.TrimSpace(responseFormat))
 	providerFormat := strings.ToLower(strings.TrimSpace(outputFormat))
 	if providerFormat != "" {
 		switch {
-		case providerFormat == "mp3", providerFormat == "ogg_opus", providerFormat == "pcm":
+		case providerFormat == "mp3", providerFormat == "wav", providerFormat == "ogg_opus", providerFormat == "pcm":
 		case strings.HasPrefix(providerFormat, "mp3_"):
 			providerFormat = "mp3"
 		case strings.HasPrefix(providerFormat, "opus_"):
@@ -342,6 +455,8 @@ func doubaoAudioFormat(responseFormat, outputFormat string) (string, error) {
 
 	var mapped string
 	switch requested {
+	case "wav":
+		mapped = "wav"
 	case "mp3":
 		mapped = "mp3"
 	case "opus":
@@ -384,6 +499,8 @@ func appendMusicRequirements(prompt string, metadata relaycommon.DCMediaAudioMet
 
 func doubaoAudioContentType(responseFormat string) string {
 	switch strings.ToLower(strings.TrimSpace(responseFormat)) {
+	case "wav":
+		return "audio/wav"
 	case "opus":
 		return "audio/ogg"
 	case "pcm":

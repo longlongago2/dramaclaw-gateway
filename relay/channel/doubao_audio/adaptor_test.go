@@ -59,6 +59,46 @@ func TestGetRequestURLAcceptsBaseAndFullEndpoint(t *testing.T) {
 	assert.Equal(t, "https://speech.example.com/api/v3/tts/create", fromEndpoint)
 }
 
+func TestAudioGenerationNativeImageAndConfig(t *testing.T) {
+	metadata := []byte(`{"references":[{"image_url":"https://example.com/scene.png"}],"audio_config":{"sample_rate":48000,"speech_rate":0,"loudness_rate":0,"pitch_rate":0}}`)
+	reader, err := (&Adaptor{}).ConvertAudioRequest(doubaoAudioTestContext(), &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeAudioSpeech,
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "seed-audio-1.0"},
+	}, dto.AudioRequest{Model: "local-audio", Input: "sound of this scene", ResponseFormat: "wav", Metadata: metadata})
+	require.NoError(t, err)
+	var request audioGenerationRequest
+	require.NoError(t, decodeDoubaoAudioRequest(reader, &request))
+	require.Len(t, request.References, 1)
+	assert.Equal(t, "https://example.com/scene.png", request.References[0].ImageURL)
+	require.NotNil(t, request.AudioConfig.SpeechRate)
+	assert.Equal(t, 0, *request.AudioConfig.SpeechRate)
+	require.NotNil(t, request.AudioConfig.LoudnessRate)
+	assert.Equal(t, 0, *request.AudioConfig.LoudnessRate)
+	require.NotNil(t, request.AudioConfig.PitchRate)
+	assert.Equal(t, 0, *request.AudioConfig.PitchRate)
+	assert.Equal(t, "wav", request.AudioConfig.Format)
+}
+
+func TestAudioGenerationRejectsInvalidNativeOptions(t *testing.T) {
+	for name, metadata := range map[string]string{
+		"mixed resources":     `{"references":[{"image_url":"https://example.com/a.png"},{"speaker":"voice"}]}`,
+		"conflicting fields":  `{"references":[{"audio_url":"https://example.com/a.wav","speaker":"voice"}]}`,
+		"too many images":     `{"references":[{"image_url":"https://example.com/a.png"},{"image_url":"https://example.com/b.png"}]}`,
+		"invalid data":        `{"references":[{"audio_data":"***"}]}`,
+		"invalid rate":        `{"audio_config":{"pitch_rate":13}}`,
+		"invalid sample rate": `{"audio_config":{"sample_rate":40000}}`,
+		"format conflict":     `{"audio_config":{"format":"wav"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&Adaptor{}).ConvertAudioRequest(doubaoAudioTestContext(), &relaycommon.RelayInfo{
+				RelayMode:   relayconstant.RelayModeAudioSpeech,
+				ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "seed-audio-1.0"},
+			}, dto.AudioRequest{Model: "local-audio", Input: "sound", ResponseFormat: "mp3", Metadata: []byte(metadata)})
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestConvertAudioRequestMapsCurrentReferenceAudioProfile(t *testing.T) {
 	c := doubaoAudioTestContext()
 	useEmotion := false

@@ -14,11 +14,13 @@ import (
 	channelconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
+	"github.com/QuantumNous/new-api/relay/channel/doubao_audio"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +33,31 @@ const (
 )
 
 type Adaptor struct {
+}
+
+func (a *Adaptor) GetCapabilities() []string {
+	return []string{"text", "embedding", "image", "video", "audio"}
+}
+
+// Audio protocols are selected by the mapped upstream model, never the local alias.
+func usesAudioGeneration(info *relaycommon.RelayInfo) bool {
+	if info == nil || info.ChannelMeta == nil || info.RelayMode != constant.RelayModeAudioSpeech {
+		return false
+	}
+	return strings.TrimSpace(info.UpstreamModelName) == "seed-audio-1.0"
+}
+
+// Ark's default URL is not the speech service URL. Keep the caller's metadata
+// intact while letting the shared audio adaptor resolve its own default.
+func audioGenerationInfo(info *relaycommon.RelayInfo) *relaycommon.RelayInfo {
+	copyInfo := *info
+	copyMeta := *info.ChannelMeta
+	copyInfo.ChannelMeta = &copyMeta
+	if strings.TrimRight(strings.TrimSpace(copyMeta.ChannelBaseUrl), "/") ==
+		channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine] {
+		copyMeta.ChannelBaseUrl = ""
+	}
+	return &copyInfo
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
@@ -48,6 +75,9 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
+	if usesAudioGeneration(info) {
+		return (&doubao_audio.Adaptor{}).ConvertAudioRequest(c, info, request)
+	}
 	if info.RelayMode != constant.RelayModeAudioSpeech {
 		return nil, errors.New("unsupported audio relay mode")
 	}
@@ -243,6 +273,9 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if usesAudioGeneration(info) {
+		return (&doubao_audio.Adaptor{}).GetRequestURL(audioGenerationInfo(info))
+	}
 	baseUrl := info.ChannelBaseUrl
 	if baseUrl == "" {
 		baseUrl = channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine]
@@ -291,6 +324,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
+	if usesAudioGeneration(info) {
+		return (&doubao_audio.Adaptor{}).SetupRequestHeader(c, req, info)
+	}
 	channel.SetupApiRequestHeader(info, c, req)
 
 	if info.RelayMode == constant.RelayModeAudioSpeech {
@@ -336,6 +372,9 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if usesAudioGeneration(info) {
+		return channel.DoApiRequest(a, c, info, requestBody)
+	}
 	if info.RelayMode == constant.RelayModeAudioSpeech {
 		baseUrl := info.ChannelBaseUrl
 		if baseUrl == "" {
@@ -352,6 +391,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if usesAudioGeneration(info) {
+		return (&doubao_audio.Adaptor{}).DoResponse(c, resp, info)
+	}
 	if info.RelayFormat == types.RelayFormatClaude {
 		if _, ok := channelconstant.ChannelSpecialBases[info.ChannelBaseUrl]; ok {
 			adaptor := claude.Adaptor{}
@@ -401,6 +443,13 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 
 func (a *Adaptor) GetModelList() []string {
 	return ModelList
+}
+
+func (a *Adaptor) DoErrorResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) *types.NewAPIError {
+	if usesAudioGeneration(info) {
+		return (&doubao_audio.Adaptor{}).DoErrorResponse(c, resp, info)
+	}
+	return service.RelayErrorHandler(c.Request.Context(), resp, false)
 }
 
 func (a *Adaptor) GetChannelName() string {

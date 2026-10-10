@@ -101,7 +101,7 @@ func NormalizeDCMediaAudioRequest(request *dto.AudioRequest) (*DCMediaAudioProfi
 
 func isDCMediaAudioResponseFormat(format string) bool {
 	switch format {
-	case "mp3", "opus", "pcm", "ulaw", "alaw":
+	case "mp3", "wav", "opus", "pcm", "ulaw", "alaw":
 		return true
 	default:
 		return false
