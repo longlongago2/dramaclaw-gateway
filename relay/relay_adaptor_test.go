@@ -6,8 +6,30 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"net/http/httptest"
 )
+
+func TestMrTokenVideoRoutingPreservesOpenAIChannels(t *testing.T) {
+	for _, test := range []struct {
+		base string
+		want constant.TaskPlatform
+	}{
+		{"https://api.mrtoken.cn", constant.TaskPlatformMrToken},
+		{"https://api.mrtoken.cn/v1/", constant.TaskPlatformMrToken},
+		{"https://api.openai.com", "1"},
+		{"https://api.mrtoken.cn.evil.test", "1"},
+		{"https://user:password@api.mrtoken.cn", "1"},
+	} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set("channel_type", constant.ChannelTypeOpenAI)
+		c.Set("base_url", test.base)
+		assert.Equal(t, test.want, GetTaskPlatform(c))
+		require.NotNil(t, GetTaskAdaptor(test.want))
+	}
+}
 
 func TestGetTaskAdaptorSupportsComfyUIChannelIDs(t *testing.T) {
 	require.Equal(t, 63, constant.ChannelTypeComfyUI)

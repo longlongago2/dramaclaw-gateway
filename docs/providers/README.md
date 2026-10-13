@@ -9,6 +9,7 @@
 |---|---|---|---|
 | ComfyUI | `relay/channel/task/comfyui/` | 已进行 DC-Media 本地视频适配 | 补充更多可复用 Workflow、素材节点和端到端样例 |
 | MiniMax / Hailuo | `relay/channel/task/hailuo/` | 已适配 H3 等视频任务，需按模型持续验证 | 补模型限制、首尾帧及参考素材契约测试 |
+| MrToken H3 / Seedance 2.0 | `relay/channel/task/mrtoken/` | type 1 按平台地址路由；H3 T2V、R2V 已真实验证；Seedance 三型号契约覆盖，上游权限拒绝真实创建 | 见 [MrToken](mrtoken.md)，平台恢复 Seedance 权限后补成片验证 |
 | VolcEngine / DoubaoVideo | `relay/channel/task/doubao/` | 已有 DC-Media 视频转换 | 按官方模型补齐能力边界和错误映射 |
 | fal.ai | `relay/channel/fal/`、`relay/channel/task/fal/` | 已注册同步媒体和异步任务 | 增加模型级 fixture 和真实调用证据 |
 | Ali | `relay/channel/task/ali/` | 已注册，DC-Media 完整覆盖待审计 | 认领协议覆盖审计并补缺失字段测试 |

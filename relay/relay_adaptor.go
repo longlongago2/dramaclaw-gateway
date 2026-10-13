@@ -43,6 +43,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/task/hailuo"
 	taskjimeng "github.com/QuantumNous/new-api/relay/channel/task/jimeng"
 	"github.com/QuantumNous/new-api/relay/channel/task/kling"
+	taskmrtoken "github.com/QuantumNous/new-api/relay/channel/task/mrtoken"
 	tasksora "github.com/QuantumNous/new-api/relay/channel/task/sora"
 	"github.com/QuantumNous/new-api/relay/channel/task/suno"
 	taskvertex "github.com/QuantumNous/new-api/relay/channel/task/vertex"
@@ -144,6 +145,9 @@ func GetAdaptor(apiType int) channel.Adaptor {
 func GetTaskPlatform(c *gin.Context) constant.TaskPlatform {
 	channelType := c.GetInt("channel_type")
 	if channelType > 0 {
+		if channelType == constant.ChannelTypeOpenAI && taskmrtoken.IsPlatformURL(c.GetString("base_url")) {
+			return constant.TaskPlatformMrToken
+		}
 		return constant.TaskPlatform(strconv.Itoa(channelType))
 	}
 	return constant.TaskPlatform(c.GetString("platform"))
@@ -155,6 +159,8 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 	//	return &aiproxy.Adaptor{}
 	case constant.TaskPlatformSuno:
 		return &suno.TaskAdaptor{}
+	case constant.TaskPlatformMrToken:
+		return &taskmrtoken.TaskAdaptor{}
 	}
 	if channelType, err := strconv.ParseInt(string(platform), 10, 64); err == nil {
 		switch channelType {

@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel/task/mrtoken"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -136,7 +137,35 @@ func videoProxy(c *gin.Context, public bool) {
 		}
 	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
 		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
-		req.Header.Set("Authorization", "Bearer "+channel.Key)
+		if task.Platform == constant.TaskPlatformMrToken && mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) {
+			// Native Seedance returns a media URL; never forward the platform
+			// credential to that CDN or invent an OpenImgVideo content endpoint.
+			videoURL = task.GetResultURL()
+		} else {
+			req.Header.Set("Authorization", "Bearer "+channel.Key)
+		}
+		if task.Platform == constant.TaskPlatformMrToken && !mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) {
+			baseURL = strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1")
+			videoURL = baseURL + "/v1/videos/" + url.PathEscape(task.GetUpstreamTaskID()) + "/content?model=" + url.QueryEscape(task.Properties.UpstreamModelName)
+			// This is the operator-configured provider endpoint, not an upstream
+			// result URL. Use the same outbound client as generation and polling.
+			trustedChannelURL = true
+			client, err = service.GetHttpClientWithProxy(proxy)
+			if err != nil {
+				videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy client")
+				return
+			}
+		}
+		if task.Platform == constant.TaskPlatformMrToken {
+			for _, header := range []string{"Range", "If-Range"} {
+				if value := c.GetHeader(header); value != "" {
+					req.Header.Set(header, value)
+				}
+			}
+			copy := *client
+			copy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+			client = &copy
+		}
 	case constant.ChannelTypeComfyUI:
 		videoURL = strings.TrimSpace(task.PrivateData.UpstreamResultURL)
 		if videoURL == "" {
@@ -207,7 +236,7 @@ func videoProxy(c *gin.Context, public bool) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && !(task.Platform == constant.TaskPlatformMrToken && resp.StatusCode == http.StatusPartialContent) {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))

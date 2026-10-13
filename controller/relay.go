@@ -629,6 +629,10 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 	if taskErr == nil {
 		return false
 	}
+	// A provider may have accepted a paid task before a connection failed.
+	if c.GetBool("task_submit_no_retry") {
+		return false
+	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}

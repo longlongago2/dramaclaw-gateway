@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/task/mrtoken"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -290,8 +291,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
-	if resp != nil && resp.StatusCode != http.StatusOK {
+	if resp != nil && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		responseBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
 
@@ -598,6 +600,9 @@ func buildDCMediaTaskResponse(task *model.Task) map[string]any {
 func taskResponseResultURL(task *model.Task) string {
 	if task == nil {
 		return ""
+	}
+	if task.Platform == constant.TaskPlatformMrToken && !mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) {
+		return taskcommon.BuildPublicProxyURL(task.TaskID)
 	}
 	if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeComfyUI)) &&
 		strings.TrimSpace(task.PrivateData.UpstreamResultURL) != "" {
