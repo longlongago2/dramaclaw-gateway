@@ -59,6 +59,17 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 			req.Metadata["seed"] = *original.Seed
 		}
 	}
+	if IsHappyHorseModel(info.UpstreamModelName) {
+		planned, err := planHappyHorseRequest(req, info.UpstreamModelName)
+		if err != nil {
+			return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+		}
+		c.Set("mrtoken_happyhorse_request", planned)
+		if len(planned.Input.Media) > 0 {
+			info.Action = constant.TaskActionGenerate
+		}
+		return nil
+	}
 	if IsSeedanceModel(info.UpstreamModelName) {
 		planned, err := planSeedanceRequest(req, info.UpstreamModelName)
 		if err != nil {
@@ -79,6 +90,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, _ *relaycommon.RelayInfo) map[string]float64 {
+	if value, exists := c.Get("mrtoken_happyhorse_request"); exists {
+		if planned, ok := value.(*happyHorseRequest); ok && planned.Parameters.Duration != nil {
+			return map[string]float64{"seconds": float64(*planned.Parameters.Duration)}
+		}
+	}
 	if value, exists := c.Get("mrtoken_seedance_request"); exists {
 		if planned, ok := value.(*seedanceRequest); ok && planned.Duration != nil {
 			return map[string]float64{"seconds": float64(*planned.Duration)}
@@ -92,6 +108,9 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, _ *relaycommon.RelayInfo) 
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if IsHappyHorseModel(info.UpstreamModelName) {
+		return a.baseURL + "/v1/video-generation/video-synthesis", nil
+	}
 	if IsSeedanceModel(info.UpstreamModelName) {
 		return a.baseURL + "/v1/video-generation/seedance", nil
 	}
@@ -107,6 +126,13 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, info
 }
 
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
+	if value, exists := c.Get("mrtoken_happyhorse_request"); exists {
+		data, err := common.Marshal(value)
+		if err != nil {
+			return nil, fmt.Errorf("cannot encode MrToken HappyHorse request")
+		}
+		return bytes.NewReader(data), nil
+	}
 	if value, exists := c.Get("mrtoken_seedance_request"); exists {
 		data, err := common.Marshal(value)
 		if err != nil {
@@ -184,7 +210,11 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		ID          string `json:"id"`
 		TaskID      string `json:"task_id"`
 		CamelTaskID string `json:"taskId"`
-		Data        struct {
+		Output      struct {
+			TaskID      string `json:"task_id"`
+			CamelTaskID string `json:"taskId"`
+		} `json:"output"`
+		Data struct {
 			ID          string `json:"id"`
 			TaskID      string `json:"task_id"`
 			CamelTaskID string `json:"taskId"`
@@ -194,7 +224,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return "", nil, service.TaskErrorWrapperLocal(fmt.Errorf("invalid MrToken video submission response"), "invalid_response", http.StatusBadGateway)
 	}
 	upstreamID := data.ID
-	for _, candidate := range []string{data.TaskID, data.CamelTaskID, data.Data.ID, data.Data.TaskID, data.Data.CamelTaskID} {
+	for _, candidate := range []string{data.TaskID, data.CamelTaskID, data.Data.ID, data.Data.TaskID, data.Data.CamelTaskID, data.Output.TaskID, data.Output.CamelTaskID} {
 		if upstreamID == "" {
 			upstreamID = candidate
 		}
@@ -221,6 +251,8 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	endpoint := strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1") + "/v1/videos/" + url.PathEscape(taskID) + "?model=" + url.QueryEscape(modelName)
 	if IsSeedanceModel(modelName) {
 		endpoint = strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1") + "/v1/video-generation/seedance/tasks/" + url.PathEscape(taskID)
+	} else if IsHappyHorseModel(modelName) {
+		endpoint = strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1") + "/v1/video-generation/tasks/" + url.PathEscape(taskID)
 	}
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -276,6 +308,25 @@ func (a *TaskAdaptor) ParseTaskResult(data []byte) (*relaycommon.TaskInfo, error
 	if common.Unmarshal(data, &task) != nil {
 		return nil, fmt.Errorf("invalid MrToken task response")
 	}
+	var native struct {
+		Output *struct {
+			Status   string `json:"task_status"`
+			VideoURL string `json:"video_url"`
+			Message  string `json:"message"`
+		} `json:"output"`
+	}
+	if common.Unmarshal(data, &native) == nil && native.Output != nil {
+		task.Status, task.Content.VideoURL = native.Output.Status, native.Output.VideoURL
+		if native.Output.Message != "" {
+			task.Error = &struct {
+				Message string `json:"message"`
+			}{Message: native.Output.Message}
+		}
+		status := strings.ToLower(task.Status)
+		if (status == "succeeded" || status == "success" || status == "completed") && strings.TrimSpace(task.Content.VideoURL) == "" {
+			return nil, fmt.Errorf("MrToken completed task is missing video content")
+		}
+	}
 	result := &relaycommon.TaskInfo{}
 	if task.Progress != nil && *task.Progress > 0 && *task.Progress < 100 {
 		result.Progress = fmt.Sprintf("%.0f%%", *task.Progress)
@@ -304,7 +355,7 @@ func (a *TaskAdaptor) ParseTaskResult(data []byte) (*relaycommon.TaskInfo, error
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	video := task.ToOpenAIVideo()
-	if task.Status == model.TaskStatusSuccess && IsSeedanceModel(task.Properties.UpstreamModelName) {
+	if task.Status == model.TaskStatusSuccess && (IsSeedanceModel(task.Properties.UpstreamModelName) || IsHappyHorseModel(task.Properties.UpstreamModelName)) {
 		video.SetMetadata("url", task.GetResultURL())
 	} else if task.Status == model.TaskStatusSuccess {
 		video.SetMetadata("url", taskcommon.BuildPublicProxyURL(task.TaskID))

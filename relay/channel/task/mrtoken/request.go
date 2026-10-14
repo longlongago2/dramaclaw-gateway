@@ -11,6 +11,8 @@ var modelList = []string{
 	"minimax-h3-t2v", "minimax-h3-i2v", "minimax-h3-r2v",
 	"minimax-h3-max-t2v", "minimax-h3-max-i2v",
 	"doubao-seedance-2.0", "doubao-seedance-2.0-fast", "doubao-seedance-2.0-mini",
+	"happyhorse-1.0-t2v", "happyhorse-1.0-i2v", "happyhorse-1.0-r2v",
+	"happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v",
 }
 
 type fileReference struct {
@@ -55,7 +57,7 @@ func supportedModel(name string) bool {
 
 // planVideoRequest validates the DC-Media boundary before uploads or billing.
 func planVideoRequest(req relaycommon.TaskSubmitReq, modelName string) (*videoRequest, error) {
-	if !supportedModel(modelName) || IsSeedanceModel(modelName) {
+	if !supportedModel(modelName) || IsSeedanceModel(modelName) || IsHappyHorseModel(modelName) {
 		return nil, fmt.Errorf("MrToken video model is not supported by the H3 adapter")
 	}
 	if _, err := relaycommon.ValidateDCMediaTaskRequest(&req); err != nil {

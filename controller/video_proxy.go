@@ -137,14 +137,14 @@ func videoProxy(c *gin.Context, public bool) {
 		}
 	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
 		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
-		if task.Platform == constant.TaskPlatformMrToken && mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) {
+		if task.Platform == constant.TaskPlatformMrToken && (mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) || mrtoken.IsHappyHorseModel(task.Properties.UpstreamModelName)) {
 			// Native Seedance returns a media URL; never forward the platform
 			// credential to that CDN or invent an OpenImgVideo content endpoint.
 			videoURL = task.GetResultURL()
 		} else {
 			req.Header.Set("Authorization", "Bearer "+channel.Key)
 		}
-		if task.Platform == constant.TaskPlatformMrToken && !mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) {
+		if task.Platform == constant.TaskPlatformMrToken && !mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) && !mrtoken.IsHappyHorseModel(task.Properties.UpstreamModelName) {
 			baseURL = strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1")
 			videoURL = baseURL + "/v1/videos/" + url.PathEscape(task.GetUpstreamTaskID()) + "/content?model=" + url.QueryEscape(task.Properties.UpstreamModelName)
 			// This is the operator-configured provider endpoint, not an upstream

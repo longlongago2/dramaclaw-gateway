@@ -84,7 +84,7 @@ func TestMrTokenVideoProxyUsesOriginalModelAndForwardsRange(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, invalidRecorder.Code)
 }
 
-func TestMrTokenSeedanceVideoProxyDoesNotSendPlatformKeyToCDN(t *testing.T) {
+func TestMrTokenNativeVideoProxyDoesNotSendPlatformKeyToCDN(t *testing.T) {
 	originalDB, originalLogDB := model.DB, model.LOG_DB
 	originalMemoryCache, originalRedis := common.MemoryCacheEnabled, common.RedisEnabled
 	originalFetch := *system_setting.GetFetchSetting()
@@ -110,17 +110,21 @@ func TestMrTokenSeedanceVideoProxyDoesNotSendPlatformKeyToCDN(t *testing.T) {
 	defer server.Close()
 	channel := &model.Channel{Type: constant.ChannelTypeOpenAI, Key: "test-platform-key", BaseURL: common.GetPointer("https://api.mrtoken.cn")}
 	require.NoError(t, db.Create(channel).Error)
-	task := &model.Task{TaskID: "task_seedance", Platform: constant.TaskPlatformMrToken, UserId: 42, ChannelId: channel.Id, Status: model.TaskStatusSuccess}
-	task.Properties.UpstreamModelName = "doubao-seedance-2.0-mini"
-	task.PrivateData.ResultURL = server.URL + "/seedance.mp4"
-	require.NoError(t, db.Create(task).Error)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_seedance/content", nil)
-	c.Request.Header.Set("Range", "bytes=0-3")
-	c.Set("id", 42)
-	c.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
-	VideoProxy(c)
-	assert.Equal(t, http.StatusPartialContent, recorder.Code)
-	assert.Equal(t, "test", recorder.Body.String())
+	for _, modelName := range []string{"doubao-seedance-2.0-mini", "happyhorse-1.0-r2v", "happyhorse-1.1-i2v"} {
+		t.Run(modelName, func(t *testing.T) {
+			task := &model.Task{TaskID: "task_" + modelName, Platform: constant.TaskPlatformMrToken, UserId: 42, ChannelId: channel.Id, Status: model.TaskStatusSuccess}
+			task.Properties.UpstreamModelName = modelName
+			task.PrivateData.ResultURL = server.URL + "/seedance.mp4"
+			require.NoError(t, db.Create(task).Error)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/"+task.TaskID+"/content", nil)
+			c.Request.Header.Set("Range", "bytes=0-3")
+			c.Set("id", 42)
+			c.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+			VideoProxy(c)
+			assert.Equal(t, http.StatusPartialContent, recorder.Code)
+			assert.Equal(t, "test", recorder.Body.String())
+		})
+	}
 }
