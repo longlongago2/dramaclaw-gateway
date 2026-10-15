@@ -45,7 +45,7 @@ Then open <http://localhost:8080> → **Settings → Model Config** and pick a m
 | Mode | What the gateway does |
 |---|---|
 | **Official** | Idle. DramaClaw talks to the official RelayClaw service with your DC key. |
-| **Custom** | One click initializes this gateway (root account, runtime token). Add your own provider channels in its admin UI at <http://localhost:3000>; every model DramaClaw calls goes through them. |
+| **Custom** | One click initializes this gateway (root account, runtime token). Add your own provider channels in its admin UI at <http://localhost:18473>; every model DramaClaw calls goes through them. |
 | **Local + Official Hybrid** | Official models for the main pipeline, extra channels (e.g. a local ComfyUI video workflow) through this gateway. |
 
 The gateway's SQLite database lives in the Compose `newapi-data` volume and is
@@ -64,6 +64,7 @@ Multi-arch (amd64 / arm64) images are published to Docker Hub as
   the exact tag it was tested against, and so should you.
 - Each tag is built from the matching git tag in this repository, signed with
   cosign, and ships an SBOM and provenance attestation.
+- Native startup defaults to port `18473`; override it with `--port` or `PORT`.
 - The container listens on port `3000`, works in `/data`, and uses SQLite at
   `/data/one-api.db` unless `SQL_DSN` points at PostgreSQL / MySQL.
 
@@ -72,13 +73,13 @@ DramaClaw instances:
 
 ```bash
 docker run -d --name dramaclaw-gateway \
-  -p 3000:3000 \
+  -p 18473:3000 \
   -v dramaclaw-gateway-data:/data \
   -e TZ=Asia/Shanghai \
   claymorelab/dramaclaw-gateway:v1.0.0-rc.24-dramaclaw.1
 ```
 
-Open <http://localhost:3000> and complete the setup wizard to create the admin
+Open <http://localhost:18473> and complete the setup wizard to create the admin
 account. Configuration is the same as upstream New API (`.env.example` lists
 every variable); see the preserved New API documentation further down.
 
@@ -271,14 +272,14 @@ docker pull calciumion/new-api:latest
 
 # Using SQLite (default)
 docker run --name new-api -d --restart always \
-  -p 3000:3000 \
+  -p 18473:3000 \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \
   calciumion/new-api:latest
 
 # Using MySQL
 docker run --name new-api -d --restart always \
-  -p 3000:3000 \
+  -p 18473:3000 \
   -e SQL_DSN="root:123456@tcp(localhost:3306)/oneapi" \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \
@@ -291,7 +292,7 @@ docker run --name new-api -d --restart always \
 
 ---
 
-🎉 After deployment is complete, visit `http://localhost:3000` to start using!
+🎉 After deployment is complete, visit `http://localhost:18473` to start using!
 
 > [!WARNING]
 > When operating this project as a public generative AI service or API resale service, users should first complete all required filing, licensing, content safety, real-name verification, log retention, tax, payment, and upstream authorization obligations.
@@ -509,7 +510,7 @@ docker-compose up -d
 **Using SQLite:**
 ```bash
 docker run --name new-api -d --restart always \
-  -p 3000:3000 \
+  -p 18473:3000 \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \
   calciumion/new-api:latest
@@ -518,7 +519,7 @@ docker run --name new-api -d --restart always \
 **Using MySQL:**
 ```bash
 docker run --name new-api -d --restart always \
-  -p 3000:3000 \
+  -p 18473:3000 \
   -e SQL_DSN="root:123456@tcp(localhost:3306)/oneapi" \
   -e TZ=Asia/Shanghai \
   -v ./data:/data \

@@ -110,7 +110,7 @@ func TestMrTokenNativeVideoProxyDoesNotSendPlatformKeyToCDN(t *testing.T) {
 	defer server.Close()
 	channel := &model.Channel{Type: constant.ChannelTypeOpenAI, Key: "test-platform-key", BaseURL: common.GetPointer("https://api.mrtoken.cn")}
 	require.NoError(t, db.Create(channel).Error)
-	for _, modelName := range []string{"doubao-seedance-2.0-mini", "happyhorse-1.0-r2v", "happyhorse-1.1-i2v"} {
+	for _, modelName := range []string{"doubao-seedance-2.0-mini", "happyhorse-1.0-r2v", "happyhorse-1.1-i2v", "wan2.7-r2v", "wan3.0-video-prime"} {
 		t.Run(modelName, func(t *testing.T) {
 			task := &model.Task{TaskID: "task_" + modelName, Platform: constant.TaskPlatformMrToken, UserId: 42, ChannelId: channel.Id, Status: model.TaskStatusSuccess}
 			task.Properties.UpstreamModelName = modelName

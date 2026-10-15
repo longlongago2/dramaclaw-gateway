@@ -13,6 +13,8 @@ var modelList = []string{
 	"doubao-seedance-2.0", "doubao-seedance-2.0-fast", "doubao-seedance-2.0-mini",
 	"happyhorse-1.0-t2v", "happyhorse-1.0-i2v", "happyhorse-1.0-r2v",
 	"happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v",
+	"wan2.7-t2v", "wan2.7-i2v", "wan2.7-r2v",
+	"wan3.0-video", "wan3.0-video-prime",
 }
 
 type fileReference struct {
