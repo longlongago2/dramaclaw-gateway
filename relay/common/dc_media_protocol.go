@@ -177,6 +177,30 @@ func ValidateDCMediaTaskRequest(req *TaskSubmitReq) (DCMediaCallShape, error) {
 	return DCMediaTextToVideo, nil
 }
 
+// ValidateDCMediaTaskRequestForModel applies the two Wan 2.7 combinations
+// that the generic DC-Media shape classifier otherwise rejects. The provider
+// adapter still validates the complete model-specific media contract.
+func ValidateDCMediaTaskRequestForModel(req *TaskSubmitReq, upstreamModel string) (DCMediaCallShape, error) {
+	if upstreamModel != "wan2.7-i2v" && upstreamModel != "wan2.7-r2v" {
+		return ValidateDCMediaTaskRequest(req)
+	}
+	if err := NormalizeDCMediaTaskRequest(req); err != nil {
+		return "", err
+	}
+	validationReq := *req
+	validationReq.Metadata = make(map[string]interface{}, len(req.Metadata))
+	for key, value := range req.Metadata {
+		validationReq.Metadata[key] = value
+	}
+	if upstreamModel == "wan2.7-r2v" && req.Image != "" {
+		delete(validationReq.Metadata, "reference_images")
+	}
+	if upstreamModel == "wan2.7-i2v" {
+		delete(validationReq.Metadata, "last_frame_image")
+	}
+	return ValidateDCMediaTaskRequest(&validationReq)
+}
+
 func dcMediaError(code, field, message string) error {
 	return &DCMediaValidationError{Code: code, Field: field, Message: message}
 }

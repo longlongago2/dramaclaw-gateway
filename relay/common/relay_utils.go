@@ -262,7 +262,11 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 	if taskErr := normalizeAndValidateTaskDuration(&req); taskErr != nil {
 		return taskErr
 	}
-	shape, err := ValidateDCMediaTaskRequest(&req)
+	upstreamModel := ""
+	if info != nil && info.ChannelMeta != nil {
+		upstreamModel = info.UpstreamModelName
+	}
+	shape, err := ValidateDCMediaTaskRequestForModel(&req, upstreamModel)
 	if err != nil {
 		return createTaskError(err, DCMediaValidationErrorCode(err), http.StatusBadRequest, true)
 	}
@@ -342,7 +346,11 @@ func ValidateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string) *d
 	if taskErr := normalizeAndValidateTaskDuration(&req); taskErr != nil {
 		return taskErr
 	}
-	if _, err := ValidateDCMediaTaskRequest(&req); err != nil {
+	upstreamModel := ""
+	if info != nil && info.ChannelMeta != nil {
+		upstreamModel = info.UpstreamModelName
+	}
+	if _, err := ValidateDCMediaTaskRequestForModel(&req, upstreamModel); err != nil {
 		return createTaskError(err, DCMediaValidationErrorCode(err), http.StatusBadRequest, true)
 	}
 	if req.Image != "" && len(req.Images) == 0 {
