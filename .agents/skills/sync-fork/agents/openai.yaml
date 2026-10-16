@@ -1,4 +1,0 @@
-interface:
-  display_name: "Sync Fork"
-  short_description: "Merge upstream into a fork and verify custom integrations"
-  default_prompt: "Use $sync-fork to synchronize this fork on its development branch, preserve custom behavior, and report validation and PR status."

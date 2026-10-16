@@ -6,6 +6,16 @@ DO NOT send optional commentary
 
 This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI providers (OpenAI, Claude, Gemini, Azure, AWS Bedrock, etc.) behind a unified API, with user management, billing, rate limiting, and an admin dashboard.
 
+## Workspace-owned Agent Skills
+
+Only `.agents/.gitkeep` belongs in Git. `.agents/skills` is an ignored local
+Windows Junction to `../.agents/skills`, the workspace-owned source directory.
+After restoring that source, run `scripts/init-shared-skills.ps1` in PowerShell.
+Do not commit files through the Junction.
+The initializer preserves existing files and refuses tracked skills or conflicting
+links. Before checking out an older branch that still tracks skills, use a separate
+worktree without a Junction; ignore rules do not protect already-tracked files.
+
 ## Tech Stack
 
 - **Backend**: Go 1.22+, Gin web framework, GORM v2 ORM

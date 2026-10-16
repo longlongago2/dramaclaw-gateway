@@ -1,0 +1,31 @@
+name: Shared skills Junction
+
+on:
+  push:
+    paths:
+      - '.agents/**'
+      - '.gitignore'
+      - 'scripts/init-shared-skills.ps1'
+      - 'scripts/test_init_shared_skills.py'
+      - '.github/workflows/shared-skills.yml'
+  pull_request:
+    paths:
+      - '.agents/**'
+      - '.gitignore'
+      - 'scripts/init-shared-skills.ps1'
+      - 'scripts/test_init_shared_skills.py'
+      - '.github/workflows/shared-skills.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  junction:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Verify initialization and checkout preserve shared skills
+        run: python scripts/test_init_shared_skills.py

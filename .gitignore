@@ -1,4 +1,8 @@
 .idea
+# Workspace-owned skills are linked locally; keep the marker outside the Junction.
+/.agents/*
+!/.agents/.gitkeep
+
 .vscode
 .zed
 .history

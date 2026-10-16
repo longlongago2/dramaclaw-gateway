@@ -1,4 +1,0 @@
-interface:
-  display_name: "MrToken API Integration"
-  short_description: "Configure MrToken video models and validate API integrations"
-  default_prompt: "Use $mrtoken-integration to configure MrToken models and verify video generation safely."
