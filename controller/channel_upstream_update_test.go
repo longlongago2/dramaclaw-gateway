@@ -408,6 +408,55 @@ func TestFetchNewAPIModelsUsesOpenAIContract(t *testing.T) {
 	require.Equal(t, []string{"gpt-5", "gpt-5-mini"}, models)
 }
 
+func TestFetchVolcEngineModelsUsesArkAPI(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		baseSuffix string
+		wantPath   string
+		codingPlan bool
+	}{
+		{name: "host", wantPath: "/api/v3/models"},
+		{name: "trailing slash", baseSuffix: "/", wantPath: "/api/v3/models"},
+		{name: "Ark API base", baseSuffix: "/api/v3", wantPath: "/api/v3/models"},
+		{name: "Ark API trailing slash", baseSuffix: "/api/v3/", wantPath: "/api/v3/models"},
+		{name: "OpenAI proxy API base", baseSuffix: "/v1", wantPath: "/v1/models"},
+		{name: "coding plan", baseSuffix: "/api/coding/v3", wantPath: "/api/coding/v3/models", codingPlan: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, test.wantPath, r.URL.Path)
+				assert.Equal(t, "Bearer saved-ark-key", r.Header.Get("Authorization"))
+				if r.URL.Path != test.wantPath {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, err := w.Write([]byte(`{"object":"list","data":[{"id":"doubao-seed-1-6"},{"id":" doubao-seed-1-6 "},{"id":"doubao-seedream-4-0"}]}`))
+				assert.NoError(t, err)
+			}))
+			t.Cleanup(server.Close)
+
+			baseURL := server.URL + test.baseSuffix
+			if test.codingPlan {
+				const planName = "doubao-coding-plan"
+				original := constant.ChannelSpecialBases[planName]
+				constant.ChannelSpecialBases[planName] = constant.ChannelSpecialBase{OpenAIBaseURL: baseURL}
+				t.Cleanup(func() { constant.ChannelSpecialBases[planName] = original })
+				baseURL = planName
+			}
+			channel := &model.Channel{
+				Type:    constant.ChannelTypeVolcEngine,
+				Key:     "saved-ark-key",
+				BaseURL: &baseURL,
+			}
+
+			models, err := fetchChannelUpstreamModelIDs(channel)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"doubao-seed-1-6", "doubao-seedream-4-0"}, models)
+		})
+	}
+}
+
 func TestNormalizeModelNames(t *testing.T) {
 	result := normalizeModelNames([]string{
 		" gpt-4o ",

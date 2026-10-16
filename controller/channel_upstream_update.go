@@ -382,9 +382,15 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		}
 	case constant.ChannelTypeVolcEngine:
 		if plan, ok := constant.ChannelSpecialBases[baseURL]; ok && plan.OpenAIBaseURL != "" {
-			url = fmt.Sprintf("%s/v1/models", plan.OpenAIBaseURL)
+			url = strings.TrimRight(plan.OpenAIBaseURL, "/") + "/models"
 		} else {
-			url = fmt.Sprintf("%s/v1/models", baseURL)
+			// Ark serves model discovery under the same /api/v3 base as inference.
+			// Also accept an explicit API base without appending its version twice.
+			apiBase := strings.TrimRight(baseURL, "/")
+			if !strings.HasSuffix(apiBase, "/api/v3") && !strings.HasSuffix(apiBase, "/v1") {
+				apiBase += "/api/v3"
+			}
+			url = apiBase + "/models"
 		}
 	case constant.ChannelTypeMoonshot:
 		if plan, ok := constant.ChannelSpecialBases[baseURL]; ok && plan.OpenAIBaseURL != "" {
