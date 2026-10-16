@@ -137,14 +137,14 @@ func videoProxy(c *gin.Context, public bool) {
 		}
 	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
 		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
-		if task.Platform == constant.TaskPlatformMrToken && mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) {
+		if task.Platform == constant.TaskPlatformMrToken && (mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) || mrtoken.IsHappyHorseModel(task.Properties.UpstreamModelName) || mrtoken.IsWanNativeGenerationModel(task.Properties.UpstreamModelName)) {
 			// Native Seedance returns a media URL; never forward the platform
 			// credential to that CDN or invent an OpenImgVideo content endpoint.
 			videoURL = task.GetResultURL()
 		} else {
 			req.Header.Set("Authorization", "Bearer "+channel.Key)
 		}
-		if task.Platform == constant.TaskPlatformMrToken && !mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) {
+		if task.Platform == constant.TaskPlatformMrToken && !mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) && !mrtoken.IsHappyHorseModel(task.Properties.UpstreamModelName) && !mrtoken.IsWanNativeGenerationModel(task.Properties.UpstreamModelName) {
 			baseURL = strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1")
 			videoURL = baseURL + "/v1/videos/" + url.PathEscape(task.GetUpstreamTaskID()) + "/content?model=" + url.QueryEscape(task.Properties.UpstreamModelName)
 			// This is the operator-configured provider endpoint, not an upstream
@@ -216,28 +216,28 @@ func videoProxy(c *gin.Context, public bool) {
 		validateErr = common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain)
 	}
 	if validateErr != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: %v", taskID, validateErr))
-		videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("request blocked: %v", validateErr))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s", taskID))
+		videoProxyError(c, http.StatusForbidden, "server_error", "request blocked by URL policy")
 		return
 	}
 
 	req.URL, err = url.Parse(videoURL)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse URL %s: %s", videoURL, err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse video URL for task %s", taskID))
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video from %s: %s", videoURL, err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video for task %s", taskID))
 		videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && !(task.Platform == constant.TaskPlatformMrToken && resp.StatusCode == http.StatusPartialContent) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for task %s", resp.StatusCode, taskID))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
 		return

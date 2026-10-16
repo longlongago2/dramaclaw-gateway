@@ -59,10 +59,18 @@ func TestMrTokenCompletedResponseAllowsSignedDownload(t *testing.T) {
 	assert.False(t, taskcommon.ValidatePublicProxySignature("another_task", expires, signature))
 }
 
-func TestMrTokenSeedanceResponsePreservesNativeMediaURL(t *testing.T) {
-	task := &model.Task{TaskID: "task_seedance", Platform: constant.TaskPlatformMrToken, Status: model.TaskStatusSuccess}
-	task.Properties.UpstreamModelName = "doubao-seedance-2.0-mini"
-	task.PrivateData.ResultURL = "https://example.test/seedance.mp4"
-	response := buildDCMediaTaskResponse(task)
-	assert.Equal(t, task.PrivateData.ResultURL, response["result_url"])
+func TestMrTokenNativeResponsePreservesMediaURL(t *testing.T) {
+	for _, name := range []string{"doubao-seedance-2.0-mini", "happyhorse-1.1-r2v", "wan2.7-t2v", "wan2.7-i2v", "wan2.7-r2v", "wan3.0-video", "wan3.0-video-prime"} {
+		t.Run(name, func(t *testing.T) {
+			task := &model.Task{TaskID: "task_native", Platform: constant.TaskPlatformMrToken, Status: model.TaskStatusSuccess}
+			task.Properties.UpstreamModelName = name
+			task.PrivateData.ResultURL = "https://example.test/result.mp4?signature=example"
+			response := buildDCMediaTaskResponse(task)
+			assert.Equal(t, task.PrivateData.ResultURL, response["result_url"])
+			results, ok := response["results"].([]map[string]any)
+			require.True(t, ok)
+			require.Len(t, results, 1)
+			assert.Equal(t, task.PrivateData.ResultURL, results[0]["url"])
+		})
+	}
 }

@@ -601,7 +601,7 @@ func taskResponseResultURL(task *model.Task) string {
 	if task == nil {
 		return ""
 	}
-	if task.Platform == constant.TaskPlatformMrToken && !mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) {
+	if task.Platform == constant.TaskPlatformMrToken && !mrtoken.IsWanNativeGenerationModel(task.Properties.UpstreamModelName) && !mrtoken.IsSeedanceModel(task.Properties.UpstreamModelName) && !mrtoken.IsHappyHorseModel(task.Properties.UpstreamModelName) {
 		return taskcommon.BuildPublicProxyURL(task.TaskID)
 	}
 	if task.Platform == constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeComfyUI)) &&

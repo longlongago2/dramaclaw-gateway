@@ -12,6 +12,7 @@ capabilities. This table records human verification and known gaps.
 |---|---|---|---|
 | ComfyUI | `relay/channel/task/comfyui/` | DC-Media local video adaptation exists | Add reusable workflows, media-node coverage, and end-to-end examples |
 | MiniMax / Hailuo | `relay/channel/task/hailuo/` | H3 and related video work exists; verify per model | Add model limits, frame-role, and reference-media contract tests |
+| MrToken Wan 2.7 / 3.0 | `relay/channel/task/mrtoken/` | Native 2.7 R2V generation, recovered-task delivery and playback after UI import verified; five generation models have local contract coverage | See [Wan integration notes](../mrtoken-wan-assessment.md); fresh UI generation and other models remain unverified; VideoEdit and Wan 3.0 video references are disabled |
 | VolcEngine / DoubaoVideo | `relay/channel/task/doubao/` | DC-Media video conversion exists | Document model boundaries and provider error mapping |
 | fal.ai | `relay/channel/fal/`, `relay/channel/task/fal/` | Sync media and async task adapters are registered | Add model fixtures and sanitized real-call evidence |
 | Ali | `relay/channel/task/ali/` | Registered; full DC-Media coverage needs audit | Claim a protocol coverage audit and add missing-field tests |
