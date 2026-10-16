@@ -8,13 +8,15 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 
 ## Workspace-owned Agent Skills
 
-Only `.agents/.gitkeep` belongs in Git. `.agents/skills` is an ignored local
-Windows Junction to `../.agents/skills`, the workspace-owned source directory.
-After restoring that source, run `scripts/init-shared-skills.ps1` in PowerShell.
-Do not commit files through the Junction.
-The initializer preserves existing files and refuses tracked skills or conflicting
-links. Before checking out an older branch that still tracks skills, use a separate
-worktree without a Junction; ignore rules do not protect already-tracked files.
+Only `.agents/.gitkeep` belongs in Git by default. `.agents/skills` must remain a
+real directory so project-owned skills can coexist with shared skills. Run
+`python scripts/init-shared-skills.py` with Python 3.11+ and Git after restoring the
+workspace-owned source at `../.agents/skills`. Each shared skill gets its own link:
+a Junction on Windows (CPython), or a directory symlink on Linux/macOS.
+The initializer migrates the old whole-directory link only when it points to that
+source, preserves project-owned skills, and rejects name conflicts or tracked shared
+paths. Do not commit shared links. Legacy branches that track shared skills must be
+used in a separate worktree without those links; ignore rules do not protect tracked files.
 
 ## Tech Stack
 

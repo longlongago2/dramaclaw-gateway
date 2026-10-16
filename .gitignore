@@ -1,5 +1,5 @@
 .idea
-# Workspace-owned skills are linked locally; keep the marker outside the Junction.
+# Shared skill links and project skills stay local; only the marker is tracked.
 /.agents/*
 !/.agents/.gitkeep
 

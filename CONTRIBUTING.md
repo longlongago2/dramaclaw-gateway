@@ -5,23 +5,27 @@
 Thank you for helping DramaClaw reach more model providers. This guide defines
 the contribution contract for provider channels and media models.
 
-## Shared Skills on Windows
+## Shared and Project-owned Skills
 
-Only `.agents/.gitkeep` is tracked; its contents are ignored. Restore the workspace-owned
-skills from an existing workspace or backup into `../.agents/skills`, then run this in
-each checkout:
+Only `.agents/.gitkeep` is tracked by default; its contents are ignored. Keep
+`.agents/skills` as a real directory. Link each shared skill separately so project-owned
+skill directories can coexist. Python 3.11+ and Git are required: Windows uses CPython's
+native Junction support; Linux/macOS use directory symlinks. Restore workspace-owned
+skills from an existing workspace or backup into `../.agents/skills`, then run:
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/init-shared-skills.ps1
+```bash
+python scripts/init-shared-skills.py
 ```
 
-Use `-SharedSkillsPath <directory>` for another source location. Repeated runs are safe.
-The initializer preserves files and rejects missing sources, tracked skills, nonempty
-destinations, and links to another source. Keep the marker outside the Junction.
-Before checking out a legacy branch that still tracks skills, integrate this fix or
-use a separate worktree without a Junction; ignore rules cannot protect tracked files.
+Use `--shared-skills-path <directory>` for another source location. Repeated runs add
+new shared links and preserve project-owned skills. An old whole-directory link to
+the same source is migrated to a real directory with per-skill links, without changing
+source files. Name conflicts, tracked shared paths, missing sources, and conflicting
+links are rejected before replacing project content. Do not commit shared links.
+Before checking out a legacy branch that still tracks shared skills, integrate this
+fix or use a separate worktree without shared links; ignore rules cannot protect tracked files.
 
-Windows regression check: `python scripts/test_init_shared_skills.py`.
+Cross-platform regression check: `python scripts/test_init_shared_skills.py`.
 
 ## Before You Start
 

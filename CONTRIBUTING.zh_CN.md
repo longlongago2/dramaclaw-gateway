@@ -4,21 +4,24 @@
 
 感谢你帮助 DramaClaw 接入更多模型供应商。本文定义渠道和媒体模型贡献的工程契约。
 
-## Windows 工作区共享技能
+## 跨平台共享技能与项目技能
 
-子仓库只提交 `.agents/.gitkeep`，内部内容全部忽略。先从已有工作区或备份恢复根目录的
-`../.agents/skills` 技能源，再在每个子仓库运行：
+子仓库默认只提交 `.agents/.gitkeep`，内部内容全部忽略。`.agents/skills` 本身是普通目录，
+其中的共享技能逐项链接到根目录同名技能，项目专属技能保留自己的普通目录。
+需要 Python 3.11+ 和 Git；Windows 使用 CPython 创建 Junction，Linux/macOS 创建符号链接。
+先从已有工作区或备份恢复 `../.agents/skills` 技能源，再在每个子仓库运行：
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/init-shared-skills.ps1
+```bash
+python scripts/init-shared-skills.py
 ```
 
-其他来源可传 `-SharedSkillsPath <目录>`。脚本可重复执行；源目录缺失、技能仍被跟踪、
-目标已有文件或指向其他位置时会报错并保留内容。占位文件必须放在 Junction 外。
-历史分支若仍跟踪技能，先同步本修复，或在不建立 Junction 的独立 worktree 中操作；
+其他来源可传 `--shared-skills-path <目录>`。脚本可重复执行并补建新增共享技能的链接。
+旧的整个 `skills` 链接若指向正确技能源，会迁移为普通目录加逐项链接，不修改技能源。
+项目技能会被保留；共享技能重名、共享路径仍被跟踪、源目录缺失或链接指向其他位置时会报错。
+历史分支若仍跟踪共享技能，先同步本修复，或在不建立共享链接的独立 worktree 中操作；
 忽略规则不保护已跟踪文件。
 
-Windows 回归验证：`python scripts/test_init_shared_skills.py`。
+跨平台回归验证：`python scripts/test_init_shared_skills.py`。
 
 ## 开始之前
 
