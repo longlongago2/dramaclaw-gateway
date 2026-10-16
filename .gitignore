@@ -1,7 +1,9 @@
 .idea
-# Shared skill links and project skills stay local; only the marker is tracked.
+# Keep the skills directory and its marker; ignore local links and skill content.
 /.agents/*
-!/.agents/.gitkeep
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/.gitkeep
 
 .vscode
 .zed

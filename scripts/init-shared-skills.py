@@ -110,6 +110,10 @@ def initialize_shared_skills(repository: Path, shared: Path) -> str:
     if is_link(agents) or is_link(skills):
         raise ValueError("Directory layout changed during initialization; no skill links were created.")
 
+    marker = skills / ".gitkeep"
+    if not marker.exists() and not is_link(marker):
+        marker.touch(exist_ok=False)
+
     for destination, target in missing:
         if os.name == "nt":
             from _winapi import CreateJunction

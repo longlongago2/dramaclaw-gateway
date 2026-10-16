@@ -6,7 +6,7 @@
 
 ## 跨平台共享技能与项目技能
 
-子仓库默认只提交 `.agents/.gitkeep`，内部内容全部忽略。`.agents/skills` 本身是普通目录，
+子仓库默认只提交 `.agents/skills/.gitkeep`，保留 `skills/` 目录，其余内部内容忽略。该目录本身是普通目录，
 其中的共享技能逐项链接到根目录同名技能，项目专属技能保留自己的普通目录。
 需要 Python 3.11+ 和 Git；Windows 使用 CPython 创建 Junction，Linux/macOS 创建符号链接。
 先从已有工作区或备份恢复 `../.agents/skills` 技能源，再在每个子仓库运行：

@@ -39,16 +39,20 @@ class SharedSkillsInitializationTests(unittest.TestCase):
         (self.repo / "scripts").mkdir()
         shutil.copy2(SCRIPTS / "init-shared-skills.py", self.repo / "scripts")
         shutil.copy2(SCRIPTS.parent / ".gitignore", self.repo / ".gitignore")
-        (self.repo / ".agents").mkdir()
-        (self.repo / ".agents" / ".gitkeep").touch()
+        self.skills = self.repo / ".agents" / "skills"
+        self.skills.mkdir(parents=True)
+        (self.skills / ".gitkeep").touch()
         (self.repo / "README.md").write_text("scratch checkout\n", encoding="utf-8")
         self.git("init", "-q", "-b", "main")
-        self.git("add", ".agents/.gitkeep", ".gitignore", "README.md", "scripts")
+        self.git("add", ".agents/skills/.gitkeep", ".gitignore", "README.md", "scripts")
         self.git("commit", "-q", "-m", "placeholder layout")
-        self.skills = self.repo / ".agents" / "skills"
 
     def tearDown(self):
         self.scratch.cleanup()
+
+    def remove_skills_placeholder(self):
+        (self.skills / ".gitkeep").unlink()
+        self.skills.rmdir()
 
     def git(self, *args):
         return subprocess.check_output(
@@ -83,7 +87,11 @@ class SharedSkillsInitializationTests(unittest.TestCase):
         self.assertEqual((self.skills / "example" / "SKILL.md").read_bytes(), self.skill.read_bytes())
         (self.repo / ".agents" / "local-config.json").write_text("{}", encoding="utf-8")
         self.git("add", "--all")
-        self.assertEqual(self.git("ls-files", "--", ".agents"), ".agents/.gitkeep")
+        self.assertEqual(self.git("ls-files", "--", ".agents"), ".agents/skills/.gitkeep")
+        ignored_directory = subprocess.run(
+            ["git", "check-ignore", "-q", ".agents/skills/"], cwd=self.repo,
+        )
+        self.assertEqual(ignored_directory.returncode, 1)
         self.assertEqual(
             self.git("check-ignore", ".agents/skills/example"),
             ".agents/skills/example",
@@ -91,10 +99,12 @@ class SharedSkillsInitializationTests(unittest.TestCase):
         self.assertEqual(self.git("status", "--porcelain"), "")
 
     def test_legacy_whole_directory_link_is_migrated_without_changing_source(self):
+        self.remove_skills_placeholder()
         create_directory_link(self.shared, self.skills)
         result = self.initialize()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.skills.resolve(), self.skills)
+        self.assertTrue((self.skills / ".gitkeep").is_file())
         self.assertEqual((self.skills / "example").resolve(), self.skill.parent)
         self.assertEqual(self.skill.read_bytes(), self.original)
 
@@ -128,7 +138,6 @@ class SharedSkillsInitializationTests(unittest.TestCase):
     def test_existing_skill_link_to_other_source_is_preserved(self):
         other = self.workspace / "other skills"
         other.mkdir()
-        self.skills.mkdir()
         create_directory_link(other, self.skills / "example")
         result = self.initialize()
         self.assertNotEqual(result.returncode, 0)
@@ -139,7 +148,6 @@ class SharedSkillsInitializationTests(unittest.TestCase):
     def test_broken_skill_link_is_preserved_and_rejected(self):
         other = self.workspace / "missing after link creation"
         other.mkdir()
-        self.skills.mkdir()
         create_directory_link(other, self.skills / "example")
         other.rmdir()
         result = self.initialize()
@@ -163,7 +171,7 @@ class SharedSkillsInitializationTests(unittest.TestCase):
         result = self.initialize("--shared-skills-path", str(self.workspace / "missing"))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing", result.stderr)
-        self.assertFalse(self.skills.exists())
+        self.assertEqual(list(self.skills.iterdir()), [self.skills / ".gitkeep"])
         self.assertEqual(self.skill.read_bytes(), self.original)
 
     def test_custom_external_source_is_supported(self):
@@ -182,17 +190,18 @@ class SharedSkillsInitializationTests(unittest.TestCase):
         result = self.initialize("--shared-skills-path", str(internal))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("outside this repository", result.stderr)
-        self.assertFalse(self.skills.exists())
+        self.assertEqual(list(self.skills.iterdir()), [self.skills / ".gitkeep"])
         self.assertEqual(self.skill.read_bytes(), self.original)
 
     def test_source_containing_checkout_is_rejected(self):
         result = self.initialize("--shared-skills-path", str(self.workspace))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cannot contain", result.stderr)
-        self.assertFalse(self.skills.exists())
+        self.assertEqual(list(self.skills.iterdir()), [self.skills / ".gitkeep"])
         self.assertEqual(self.skill.read_bytes(), self.original)
 
     def test_existing_whole_directory_link_to_other_source_is_preserved(self):
+        self.remove_skills_placeholder()
         other = self.workspace / "other skills"
         other.mkdir()
         create_directory_link(other, self.skills)
@@ -203,6 +212,7 @@ class SharedSkillsInitializationTests(unittest.TestCase):
         self.assertEqual(self.skill.read_bytes(), self.original)
 
     def test_project_owned_file_at_skills_path_is_preserved(self):
+        self.remove_skills_placeholder()
         self.skills.write_text("project-owned file", encoding="utf-8")
         result = self.initialize()
         self.assertNotEqual(result.returncode, 0)
@@ -211,7 +221,7 @@ class SharedSkillsInitializationTests(unittest.TestCase):
 
     def test_linked_agents_parent_is_rejected_without_changing_target(self):
         agents = self.repo / ".agents"
-        (agents / ".gitkeep").unlink()
+        self.remove_skills_placeholder()
         agents.rmdir()
         other = self.workspace / "other agents"
         other.mkdir()
@@ -243,7 +253,7 @@ class SharedSkillsInitializationTests(unittest.TestCase):
         project.mkdir()
         (project / "SKILL.md").write_text("local skill", encoding="utf-8")
         self.git("switch", "-q", "-c", "without-placeholder")
-        self.git("rm", "-q", ".agents/.gitkeep", ".gitignore")
+        self.git("rm", "-q", ".agents/skills/.gitkeep", ".gitignore")
         self.git("commit", "-q", "-m", "checkout without placeholder")
         self.git("switch", "-q", "main")
         self.git("switch", "-q", "without-placeholder")

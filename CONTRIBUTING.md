@@ -7,8 +7,8 @@ the contribution contract for provider channels and media models.
 
 ## Shared and Project-owned Skills
 
-Only `.agents/.gitkeep` is tracked by default; its contents are ignored. Keep
-`.agents/skills` as a real directory. Link each shared skill separately so project-owned
+Only `.agents/skills/.gitkeep` is tracked by default. `.agents/skills` remains a real
+directory visible to Git while its other contents are ignored. Link each shared skill separately so project-owned
 skill directories can coexist. Python 3.11+ and Git are required: Windows uses CPython's
 native Junction support; Linux/macOS use directory symlinks. Restore workspace-owned
 skills from an existing workspace or backup into `../.agents/skills`, then run:

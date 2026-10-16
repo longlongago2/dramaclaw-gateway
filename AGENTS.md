@@ -8,7 +8,7 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 
 ## Workspace-owned Agent Skills
 
-Only `.agents/.gitkeep` belongs in Git by default. `.agents/skills` must remain a
+Only `.agents/skills/.gitkeep` belongs in Git by default. `.agents/skills` must remain a
 real directory so project-owned skills can coexist with shared skills. Run
 `python scripts/init-shared-skills.py` with Python 3.11+ and Git after restoring the
 workspace-owned source at `../.agents/skills`. Each shared skill gets its own link:
