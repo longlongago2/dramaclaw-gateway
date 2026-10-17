@@ -249,11 +249,15 @@ func FetchUpstreamModels(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	result := gin.H{
 		"success": true,
 		"message": "",
 		"data":    ids,
-	})
+	}
+	if channel.Type == constant.ChannelTypeDoubaoAudio {
+		result["source"] = "builtin"
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func FixChannelsAbilities(c *gin.Context) {
@@ -1321,11 +1325,15 @@ func FetchModels(c *gin.Context) {
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	result := gin.H{
 		"success": true,
 		"message": "",
 		"data":    models,
-	})
+	}
+	if channel.Type == constant.ChannelTypeDoubaoAudio {
+		result["source"] = "builtin"
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func BatchSetChannelTag(c *gin.Context) {

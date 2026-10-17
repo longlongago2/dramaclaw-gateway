@@ -3,6 +3,7 @@ package doubao_audio
 import (
 	"encoding/base64"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,20 +44,156 @@ func TestConvertAudioRequestUsesConfiguredUpstreamModel(t *testing.T) {
 	assert.Empty(t, request.References)
 }
 
+func TestRoboticVoicePromptIsPassedUnchangedWithoutSpeakerReference(t *testing.T) {
+	prompt := "机械合成音，音调偏高，带有清脆的电子质感，语速轻快急促，断句简短，偶尔带机械提示音\n朗读：你好，准备出发！"
+	reader, err := (&Adaptor{}).ConvertAudioRequest(doubaoAudioTestContext(), &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeAudioSpeech,
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "seed-audio-1.0"},
+	}, dto.AudioRequest{
+		Model: "index-tts-2", Input: prompt, ResponseFormat: "mp3",
+		Metadata: []byte(`{"audio_config":{"sample_rate":48000,"speech_rate":0,"pitch_rate":0,"loudness_rate":0}}`),
+	})
+	require.NoError(t, err)
+	var request audioGenerationRequest
+	require.NoError(t, common.DecodeJson(reader, &request))
+	assert.Equal(t, "seed-audio-1.0", request.Model)
+	assert.Equal(t, prompt, request.TextPrompt)
+	assert.Empty(t, request.References)
+	config, err := common.Marshal(request.AudioConfig)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"format":"mp3","sample_rate":48000,"speech_rate":0,"pitch_rate":0,"loudness_rate":0}`, string(config))
+}
+
 func TestGetRequestURLAcceptsBaseAndFullEndpoint(t *testing.T) {
 	adaptor := &Adaptor{}
+	for _, suffix := range []string{"", "/", "/api/v3", "/api/v3/", "/api/v3/tts", "/api/v3/tts/create/"} {
+		t.Run(suffix, func(t *testing.T) {
+			url, err := adaptor.GetRequestURL(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+				ChannelBaseUrl: "https://speech.example.com" + suffix,
+			}})
+			require.NoError(t, err)
+			assert.Equal(t, "https://speech.example.com/api/v3/tts/create", url)
+		})
+	}
+}
 
-	fromBase, err := adaptor.GetRequestURL(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
-		ChannelBaseUrl: "https://speech.example.com/",
-	}})
-	require.NoError(t, err)
-	assert.Equal(t, "https://speech.example.com/api/v3/tts/create", fromBase)
+func TestSpeechControlPlaneCredentials(t *testing.T) {
+	for _, test := range []struct {
+		name, key, apiKey, appID, accessKey string
+		invalid                             bool
+	}{
+		{name: "new console API key", key: " speech-key ", apiKey: "speech-key"},
+		{name: "legacy console", key: " app-id | access-token ", appID: "app-id", accessKey: "access-token"},
+		{name: "missing token", key: "app-id|", invalid: true},
+		{name: "empty key", invalid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			header := make(http.Header)
+			err := (&Adaptor{}).SetupRequestHeader(doubaoAudioTestContext(), &header, &relaycommon.RelayInfo{
+				RequestId: "test-request", ChannelMeta: &relaycommon.ChannelMeta{ApiKey: test.key},
+			})
+			if test.invalid {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.apiKey, header.Get("X-Api-Key"))
+			assert.Equal(t, test.appID, header.Get("X-Api-App-Id"))
+			assert.Equal(t, test.accessKey, header.Get("X-Api-Access-Key"))
+			assert.Equal(t, "test-request", header.Get("X-Api-Request-Id"))
+			assert.Empty(t, header.Get("Authorization"))
+		})
+	}
+}
 
-	fromEndpoint, err := adaptor.GetRequestURL(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
-		ChannelBaseUrl: "https://speech.example.com/api/v3/tts/create",
-	}})
+func TestAudioGenerationPreservesExplicitSubtitleAndWatermarkFlags(t *testing.T) {
+	reader, err := (&Adaptor{}).ConvertAudioRequest(doubaoAudioTestContext(), &relaycommon.RelayInfo{
+		RelayMode: relayconstant.RelayModeAudioSpeech,
+	}, dto.AudioRequest{Model: "seed-audio-1.0", Input: "你好", Voice: "speaker-id", ResponseFormat: "wav",
+		Metadata: []byte(`{"audio_config":{"sample_rate":40000,"enable_subtitle":false},"watermark":{"aigc_watermark":false,"aigc_metadata":{"enable":false,"content_producer":"test"}}}`),
+	})
 	require.NoError(t, err)
-	assert.Equal(t, "https://speech.example.com/api/v3/tts/create", fromEndpoint)
+	body, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"model":"seed-audio-1.0","text_prompt":"你好","references":[{"speaker":"speaker-id"}],"audio_config":{"format":"wav","sample_rate":40000,"enable_subtitle":false},"watermark":{"aigc_watermark":false,"aigc_metadata":{"enable":false,"content_producer":"test"}}}`, string(body))
+}
+
+func TestAudioGenerationReturnsRequestedSubtitlesWithAudio(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/speech", nil)
+	adaptor := &Adaptor{}
+	info := &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeAudioSpeech}
+	_, err := adaptor.ConvertAudioRequest(c, info, dto.AudioRequest{
+		Model: "seed-audio-1.0", Input: "你好", ResponseFormat: "mp3",
+		Metadata: []byte(`{"audio_config":{"enable_subtitle":true}}`),
+	})
+	require.NoError(t, err)
+	response := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+		`{"audio":"YXVkaW8=","url":"https://example.com/audio.mp3","duration":4.2,"original_duration":5.1,"subtitle":{"text":"你好","sentences":[{"start_time":0,"end_time":4200,"text":"你好"}]}}`,
+	))}
+	usage, relayErr := adaptor.DoResponse(c, response, info)
+	require.Nil(t, relayErr)
+	require.NotNil(t, usage)
+	assert.JSONEq(t, `{"audio":{"data":"YXVkaW8=","url":"https://example.com/audio.mp3","format":"mp3"},"duration":4.2,"original_duration":5.1,"subtitle":{"text":"你好","sentences":[{"start_time":0,"end_time":4200,"text":"你好"}]}}`, recorder.Body.String())
+}
+
+func TestAudioGenerationHTTPRoundTrip(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v3/tts/create", r.URL.Path)
+		assert.Equal(t, "speech-test-key", r.Header.Get("X-Api-Key"))
+		assert.Empty(t, r.Header.Get("Authorization"))
+		var request audioGenerationRequest
+		if !assert.NoError(t, common.DecodeJson(r.Body, &request)) {
+			return
+		}
+		assert.Equal(t, "seed-audio-1.0", request.Model)
+		assert.Equal(t, "你好", request.TextPrompt)
+		assert.Equal(t, "wav", request.AudioConfig.Format)
+		if assert.NotNil(t, request.Watermark) {
+			assert.Equal(t, false, *request.Watermark.AIGCWatermark)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Tt-Logid", "speech-roundtrip-id")
+		_, err := w.Write([]byte(`{"audio":"YXVkaW8=","duration":1,"original_duration":1}`))
+		assert.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/speech", nil)
+	info := &relaycommon.RelayInfo{
+		RelayMode: relayconstant.RelayModeAudioSpeech,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ApiKey: "speech-test-key", ChannelBaseUrl: server.URL,
+			UpstreamModelName: "seed-audio-1.0",
+		},
+	}
+	adaptor := &Adaptor{}
+	reader, err := adaptor.ConvertAudioRequest(c, info, dto.AudioRequest{
+		Model: "local-alias", Input: "你好", ResponseFormat: "wav",
+		Metadata: []byte(`{"watermark":{"aigc_watermark":false}}`),
+	})
+	require.NoError(t, err)
+	response, err := adaptor.DoRequest(c, info, reader)
+	require.NoError(t, err)
+	require.IsType(t, &http.Response{}, response)
+	_, relayErr := adaptor.DoResponse(c, response.(*http.Response), info)
+	require.Nil(t, relayErr)
+	assert.Equal(t, "audio", recorder.Body.String())
+	assert.Equal(t, "audio/wav", recorder.Header().Get("Content-Type"))
+	assert.Equal(t, "speech-roundtrip-id", c.GetString(common.UpstreamRequestIdKey))
+}
+
+func TestAudioGenerationRejectsEmptyPromptsAndNonFiniteSpeed(t *testing.T) {
+	for _, speed := range []float64{math.NaN(), math.Inf(1)} {
+		_, err := doubaoSpeechRate(&speed)
+		require.Error(t, err)
+	}
+	_, err := (&Adaptor{}).ConvertAudioRequest(doubaoAudioTestContext(), &relaycommon.RelayInfo{
+		RelayMode: relayconstant.RelayModeAudioSpeech,
+	}, dto.AudioRequest{Model: "seed-audio-1.0", Input: "  ", ResponseFormat: "mp3"})
+	require.ErrorContains(t, err, "input is required")
 }
 
 func TestAudioGenerationNativeImageAndConfig(t *testing.T) {
