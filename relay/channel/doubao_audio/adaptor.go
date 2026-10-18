@@ -3,6 +3,7 @@ package doubao_audio
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -27,6 +28,7 @@ const (
 	ChannelName              = "doubao_audio"
 	audioGenerationPath      = "/api/v3/tts/create"
 	contextKeyResponseFormat = "doubao_audio_response_format"
+	contextKeySubtitle       = "doubao_audio_subtitle"
 	maxTextPromptCharacters  = 3000
 	maxOutputDurationMS      = 120_000
 	maxReferenceAudioBytes   = 10 * 1024 * 1024
@@ -39,6 +41,7 @@ type audioGenerationRequest struct {
 	TextPrompt  string                `json:"text_prompt"`
 	References  []audioReference      `json:"references,omitempty"`
 	AudioConfig audioGenerationConfig `json:"audio_config"`
+	Watermark   *audioWatermark       `json:"watermark,omitempty"`
 }
 
 type audioReference struct {
@@ -50,25 +53,41 @@ type audioReference struct {
 }
 
 type audioGenerationConfig struct {
-	Format       string `json:"format"`
-	SpeechRate   *int   `json:"speech_rate,omitempty"`
-	SampleRate   *int   `json:"sample_rate,omitempty"`
-	LoudnessRate *int   `json:"loudness_rate,omitempty"`
-	PitchRate    *int   `json:"pitch_rate,omitempty"`
+	Format         string `json:"format"`
+	SpeechRate     *int   `json:"speech_rate,omitempty"`
+	SampleRate     *int   `json:"sample_rate,omitempty"`
+	LoudnessRate   *int   `json:"loudness_rate,omitempty"`
+	PitchRate      *int   `json:"pitch_rate,omitempty"`
+	EnableSubtitle *bool  `json:"enable_subtitle,omitempty"`
+}
+
+type audioWatermark struct {
+	AIGCWatermark *bool                   `json:"aigc_watermark,omitempty"`
+	AIGCMetadata  *audioWatermarkMetadata `json:"aigc_metadata,omitempty"`
+}
+
+type audioWatermarkMetadata struct {
+	Enable            *bool  `json:"enable,omitempty"`
+	ContentProducer   string `json:"content_producer,omitempty"`
+	ProduceID         string `json:"produce_id,omitempty"`
+	ContentPropagator string `json:"content_propagator,omitempty"`
+	PropagateID       string `json:"propagate_id,omitempty"`
 }
 
 type audioGenerationOptions struct {
 	References  []audioReference       `json:"references,omitempty"`
 	AudioConfig *audioGenerationConfig `json:"audio_config,omitempty"`
+	Watermark   *audioWatermark        `json:"watermark,omitempty"`
 }
 
 type audioGenerationResponse struct {
-	Code             int     `json:"code"`
-	Message          string  `json:"message"`
-	Audio            string  `json:"audio"`
-	Duration         float64 `json:"duration"`
-	OriginalDuration float64 `json:"original_duration"`
-	URL              string  `json:"url"`
+	Code             int             `json:"code"`
+	Message          string          `json:"message"`
+	Audio            string          `json:"audio"`
+	Duration         float64         `json:"duration"`
+	OriginalDuration float64         `json:"original_duration"`
+	URL              string          `json:"url"`
+	Subtitle         json.RawMessage `json:"subtitle"`
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {}
@@ -87,6 +106,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if strings.HasSuffix(baseURL, audioGenerationPath) {
 		return baseURL, nil
 	}
+	if strings.HasSuffix(baseURL, "/api/v3/tts") {
+		return baseURL + "/create", nil
+	}
+	if strings.HasSuffix(baseURL, "/api/v3") {
+		return baseURL + "/tts/create", nil
+	}
 	return baseURL + audioGenerationPath, nil
 }
 
@@ -97,7 +122,17 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 	channel.SetupApiRequestHeader(info, c, header)
 	header.Set("Content-Type", "application/json")
 	header.Set("Accept", "application/json")
-	header.Set("X-Api-Key", strings.TrimSpace(info.ApiKey))
+	key := strings.TrimSpace(info.ApiKey)
+	if strings.Contains(key, "|") {
+		parts := strings.Split(key, "|")
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return errors.New("doubao audio legacy credentials require appid|access_token")
+		}
+		header.Set("X-Api-App-Id", strings.TrimSpace(parts[0]))
+		header.Set("X-Api-Access-Key", strings.TrimSpace(parts[1]))
+	} else {
+		header.Set("X-Api-Key", key)
+	}
 	if requestID := strings.TrimSpace(info.RequestId); requestID != "" {
 		header.Set("X-Api-Request-Id", requestID)
 	}
@@ -140,6 +175,9 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		return nil, err
 	}
 	prompt := strings.TrimSpace(request.Input)
+	if prompt == "" {
+		return nil, errors.New("doubao audio input is required")
+	}
 	references := make([]audioReference, 0, 1)
 
 	if profile.Kind == relaycommon.DCMediaAudioKindReferenceSpeech {
@@ -186,7 +224,7 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 			SpeechRate: speechRate,
 		},
 	}
-	c.Set(contextKeyResponseFormat, request.ResponseFormat)
+	c.Set(contextKeyResponseFormat, format)
 	var options audioGenerationOptions
 	if len(request.Metadata) > 0 {
 		if err := common.Unmarshal(request.Metadata, &options); err != nil {
@@ -196,9 +234,6 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 	if len(options.References) > 0 {
 		if len(references) > 0 {
 			return nil, errors.New("metadata.references cannot be combined with voice or metadata.audio_url")
-		}
-		if err := validateAudioGenerationReferences(options.References); err != nil {
-			return nil, err
 		}
 		upstreamRequest.References = options.References
 	}
@@ -219,6 +254,11 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		}
 		upstreamRequest.AudioConfig = config
 	}
+	upstreamRequest.Watermark = options.Watermark
+	if err := validateAudioGenerationReferences(upstreamRequest.References); err != nil {
+		return nil, err
+	}
+	c.Set(contextKeySubtitle, upstreamRequest.AudioConfig.EnableSubtitle != nil && *upstreamRequest.AudioConfig.EnableSubtitle)
 	body, err := common.Marshal(upstreamRequest)
 	if err != nil {
 		return nil, fmt.Errorf("marshal doubao audio request: %w", err)
@@ -297,6 +337,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}
 	audio := strings.TrimSpace(upstream.Audio)
+	if audio == "" && strings.TrimSpace(upstream.URL) == "" {
+		return nil, types.NewOpenAIError(errors.New("doubao audio response contains neither audio data nor URL"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+	}
 	if audio != "" {
 		if comma := strings.Index(audio, ","); strings.HasPrefix(strings.ToLower(audio), "data:") && comma >= 0 {
 			audio = audio[comma+1:]
@@ -310,11 +353,24 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			)
 		}
 		contentType := doubaoAudioContentType(c.GetString(contextKeyResponseFormat))
+		if c.GetBool(contextKeySubtitle) {
+			c.JSON(http.StatusOK, gin.H{
+				"audio":    gin.H{"url": upstream.URL, "data": audio, "format": c.GetString(contextKeyResponseFormat)},
+				"subtitle": upstream.Subtitle, "duration": upstream.Duration, "original_duration": upstream.OriginalDuration,
+			})
+			return usage, nil
+		}
 		c.Data(http.StatusOK, contentType, audioBytes)
 		return usage, nil
 	}
 	if resultURL := strings.TrimSpace(upstream.URL); resultURL != "" {
-		c.JSON(http.StatusOK, gin.H{"audio": gin.H{"url": resultURL}})
+		result := gin.H{"audio": gin.H{"url": resultURL}}
+		if c.GetBool(contextKeySubtitle) {
+			result["subtitle"] = upstream.Subtitle
+			result["duration"] = upstream.Duration
+			result["original_duration"] = upstream.OriginalDuration
+		}
+		c.JSON(http.StatusOK, result)
 		return usage, nil
 	}
 	return nil, types.NewOpenAIError(
@@ -329,7 +385,7 @@ func (a *Adaptor) DoErrorResponse(c *gin.Context, resp *http.Response, info *rel
 	return relayErr
 }
 
-func (a *Adaptor) GetModelList() []string { return nil }
+func (a *Adaptor) GetModelList() []string { return []string{"seed-audio-1.0"} }
 
 func (a *Adaptor) GetChannelName() string { return ChannelName }
 
@@ -459,7 +515,7 @@ func doubaoAudioFormat(responseFormat, outputFormat string) (string, error) {
 		mapped = "wav"
 	case "mp3":
 		mapped = "mp3"
-	case "opus":
+	case "opus", "ogg_opus":
 		mapped = "ogg_opus"
 	case "pcm":
 		mapped = "pcm"
@@ -476,7 +532,7 @@ func doubaoSpeechRate(speed *float64) (*int, error) {
 	if speed == nil {
 		return nil, nil
 	}
-	if *speed < 0.5 || *speed > 2 {
+	if math.IsNaN(*speed) || math.IsInf(*speed, 0) || *speed < 0.5 || *speed > 2 {
 		return nil, errors.New("doubao audio speed must be between 0.5 and 2.0")
 	}
 	rate := int(math.Round((*speed - 1) * 100))
@@ -501,7 +557,7 @@ func doubaoAudioContentType(responseFormat string) string {
 	switch strings.ToLower(strings.TrimSpace(responseFormat)) {
 	case "wav":
 		return "audio/wav"
-	case "opus":
+	case "opus", "ogg_opus":
 		return "audio/ogg"
 	case "pcm":
 		return "audio/pcm"

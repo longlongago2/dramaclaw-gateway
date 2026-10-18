@@ -457,6 +457,25 @@ func TestFetchVolcEngineModelsUsesArkAPI(t *testing.T) {
 	}
 }
 
+func TestFetchDoubaoAudioModelsReturnsSupportedCatalog(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Fail(t, "the built-in speech catalog must not call an upstream model-list endpoint")
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+	body, err := common.Marshal(map[string]any{
+		"type": constant.ChannelTypeDoubaoAudio, "base_url": server.URL, "key": "speech-test-key",
+	})
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", bytes.NewReader(body))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	FetchModels(ctx)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.JSONEq(t, `{"success":true,"message":"","data":["seed-audio-1.0"],"source":"builtin"}`, recorder.Body.String())
+}
+
 func TestNormalizeModelNames(t *testing.T) {
 	result := normalizeModelNames([]string{
 		" gpt-4o ",
